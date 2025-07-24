@@ -9,8 +9,8 @@ const http = require("http");
 const Message = require("./models/Message");
 const User = require("./models/User");
 
-// Use PORT for Render compatibility, default to 3001 for local development
-const port = process.env.PORT || 3001;
+// Use PORT for Render compatibility, default to 10000 for local testing
+const port = process.env.PORT || 10000;
 let wss;
 
 // Connect to MongoDB
@@ -35,7 +35,7 @@ async function connectDB() {
   }
 }
 
-// Create HTTP server required for WebSocket server on Render
+// Create HTTP server for WebSocket on Render
 const server = http.createServer((req, res) => {
   res.writeHead(200);
   res.end("WebSocket server running...");
@@ -71,7 +71,7 @@ function startWebSocketServer() {
 
     console.log("✅ WebSocket connected:", { gigId, sellerId, userId });
 
-    // Store query parameters directly on ws
+    // Store query parameters on ws
     ws.query = { gigId, sellerId, userId };
 
     ws.on("message", async (data) => {
@@ -95,6 +95,18 @@ function startWebSocketServer() {
         }
 
         await connectDB();
+
+        // Check for duplicate message
+        const existingMessage = await Message.findOne({
+          gigId: message.gigId,
+          userId: message.senderId,
+          text: message.text,
+          timestamp: { $gte: new Date(message.timestamp - 1000) },
+        });
+        if (existingMessage) {
+          ws.send(JSON.stringify({ error: "Duplicate message" }));
+          return;
+        }
 
         const savedMessage = await Message.create({
           gigId: mongoose.Types.ObjectId.createFromHexString(message.gigId),
@@ -164,7 +176,7 @@ async function start() {
     startWebSocketServer();
 
     server.listen(port, () => {
-      console.log(`✅ Server running on http://localhost:${port}`);
+      console.log(`✅ Server running on http://localhost:${port} (local) or Render-assigned port`);
     });
   } catch (err) {
     console.error("❌ Server failed to start:", {
