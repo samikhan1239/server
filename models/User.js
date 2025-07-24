@@ -1,11 +1,16 @@
-const mongoose = require("mongoose");
+// models/User.js
+import mongoose from "mongoose";
 
-   const MessageSchema = new mongoose.Schema({
-     gigId: { type: mongoose.Schema.Types.ObjectId, ref: "Gig", required: true },
-     userId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
-     recipientId: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
-     text: { type: String, required: true },
-     timestamp: { type: Date, default: Date.now },
-   });
+const userSchema = new mongoose.Schema({
+  name: { type: String, required: true },
+  email: { type: String, required: true, unique: true },
+  password: { type: String, required: true },
+  avatar: { type: String, default: "/default-avatar.png" },
+  level: { type: String, default: "New Seller" },
+  rating: { type: Number, default: 0 },
+  responseTime: { type: String, default: "1 hour" },
+  location: { type: String, default: "Unknown" },
+  createdAt: { type: Date, default: Date.now },
+});
 
-   module.exports = mongoose.models.Message || mongoose.model("Message", MessageSchema);
+export default mongoose.models.User || mongoose.model("User", userSchema);
