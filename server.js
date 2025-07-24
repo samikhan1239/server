@@ -9,7 +9,7 @@ const http = require("http");
 const Message = require("./models/Message");
 const User = require("./models/User");
 
-// Use PORT for Render compatibility, default to 10000 for local testing
+// Use PORT for Render compatibility, default to 10000 for local
 const port = process.env.PORT || 10000;
 let wss;
 
@@ -37,8 +37,13 @@ async function connectDB() {
 
 // Create HTTP server for WebSocket on Render
 const server = http.createServer((req, res) => {
-  res.writeHead(200);
-  res.end("WebSocket server running...");
+  if (req.url === "/health") {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ status: "ok", mongoConnected: mongoose.connection.readyState === 1 }));
+  } else {
+    res.writeHead(200);
+    res.end("WebSocket server running...");
+  }
 });
 
 // Initialize WebSocket server
@@ -96,15 +101,22 @@ function startWebSocketServer() {
 
         await connectDB();
 
-        // Check for duplicate message
+        // Relaxed duplicate message check (increased window to 5 seconds)
         const existingMessage = await Message.findOne({
           gigId: message.gigId,
           userId: message.senderId,
           text: message.text,
-          timestamp: { $gte: new Date(message.timestamp - 1000) },
+          timestamp: { $gte: new Date(message.timestamp - 5000) },
         });
         if (existingMessage) {
-          ws.send(JSON.stringify({ error: "Duplicate message" }));
+          console.log("🔍 Duplicate message detected:", {
+            gigId: message.gigId,
+            senderId: message.senderId,
+            text: message.text,
+            timestamp: message.timestamp,
+            existing: existingMessage,
+          });
+          ws.send(JSON.stringify({ error: "Duplicate message detected" }));
           return;
         }
 
