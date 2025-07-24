@@ -9,6 +9,9 @@ const http = require("http");
 const Message = require("./models/Message");
 const User = require("./models/User");
 
+// Explicitly register User model to avoid MissingSchemaError
+mongoose.model("User");
+
 // Use PORT for Render compatibility, default to 10000 for local
 const port = process.env.PORT || 10000;
 let wss;
@@ -82,6 +85,7 @@ function startWebSocketServer() {
     ws.on("message", async (data) => {
       try {
         const message = JSON.parse(data);
+        console.log("Received WebSocket message:", message); // Log incoming message
 
         // Validate message format
         if (!message.gigId || !message.senderId || !message.text) {
