@@ -84,8 +84,9 @@ function startWebSocketServer() {
         const message = JSON.parse(data);
 
         // Validate message format
-        if (!message.gigId || !message.senderId || !message.text || !message.clientMessageId) {
-          ws.send(JSON.stringify({ error: "Invalid message format: Missing gigId, senderId, text, or clientMessageId" }));
+        if (!message.gigId || !message.senderId || !message.text) {
+          console.log("❌ Invalid message format:", message);
+          ws.send(JSON.stringify({ error: "Invalid message format: Missing gigId, senderId, or text" }));
           return;
         }
 
@@ -95,28 +96,12 @@ function startWebSocketServer() {
           !mongoose.Types.ObjectId.isValid(message.senderId) ||
           (message.recipientId && !mongoose.Types.ObjectId.isValid(message.recipientId))
         ) {
+          console.log("❌ Invalid message IDs:", message);
           ws.send(JSON.stringify({ error: "Invalid message IDs" }));
           return;
         }
 
         await connectDB();
-
-        // Check if message already processed using clientMessageId
-        const existingMessage = await Message.findOne({
-          clientMessageId: message.clientMessageId,
-        });
-        if (existingMessage) {
-          console.log("🔍 Message already processed:", {
-            clientMessageId: message.clientMessageId,
-            gigId: message.gigId,
-            senderId: message.senderId,
-            text: message.text,
-            timestamp: message.timestamp,
-            existing: existingMessage,
-          });
-          ws.send(JSON.stringify(existingMessage));
-          return;
-        }
 
         const savedMessage = await Message.create({
           gigId: mongoose.Types.ObjectId.createFromHexString(message.gigId),
@@ -125,8 +110,7 @@ function startWebSocketServer() {
             ? mongoose.Types.ObjectId.createFromHexString(message.recipientId)
             : null,
           text: message.text,
-          timestamp: new Date(message.timestamp),
-          clientMessageId: message.clientMessageId,
+          timestamp: new Date(message.timestamp || Date.now()),
           read: false,
         });
 
