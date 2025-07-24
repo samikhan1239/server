@@ -84,8 +84,8 @@ function startWebSocketServer() {
         const message = JSON.parse(data);
 
         // Validate message format
-        if (!message.gigId || !message.senderId || !message.text) {
-          ws.send(JSON.stringify({ error: "Invalid message format" }));
+        if (!message.gigId || !message.senderId || !message.text || !message.clientMessageId) {
+          ws.send(JSON.stringify({ error: "Invalid message format: Missing gigId, senderId, text, or clientMessageId" }));
           return;
         }
 
@@ -101,22 +101,20 @@ function startWebSocketServer() {
 
         await connectDB();
 
-        // Relaxed duplicate check (10-second window and exact timestamp match)
+        // Check if message already processed using clientMessageId
         const existingMessage = await Message.findOne({
-          gigId: message.gigId,
-          userId: message.senderId,
-          text: message.text,
-          timestamp: message.timestamp, // Exact match for timestamp
+          clientMessageId: message.clientMessageId,
         });
         if (existingMessage) {
-          console.log("🔍 Duplicate message detected:", {
+          console.log("🔍 Message already processed:", {
+            clientMessageId: message.clientMessageId,
             gigId: message.gigId,
             senderId: message.senderId,
             text: message.text,
             timestamp: message.timestamp,
             existing: existingMessage,
           });
-          ws.send(JSON.stringify({ error: "Duplicate message detected" }));
+          ws.send(JSON.stringify(existingMessage));
           return;
         }
 
@@ -128,6 +126,7 @@ function startWebSocketServer() {
             : null,
           text: message.text,
           timestamp: new Date(message.timestamp),
+          clientMessageId: message.clientMessageId,
           read: false,
         });
 
