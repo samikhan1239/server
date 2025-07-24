@@ -9,7 +9,8 @@ const http = require("http");
 const Message = require("./models/Message");
 const User = require("./models/User");
 
-const port = process.env.PORT || 8080; // Use PORT for Render compatibility
+// Use PORT for Render compatibility, default to 3001 for local development
+const port = process.env.PORT || 3001;
 let wss;
 
 // Connect to MongoDB
@@ -18,11 +19,20 @@ async function connectDB() {
   if (!process.env.MONGODB_URI) {
     throw new Error("MONGODB_URI is not defined in .env.local");
   }
-  await mongoose.connect(process.env.MONGODB_URI, {
-    useNewUrlParser: true,
-    useUnifiedTopology: true,
-  });
-  console.log("✅ MongoDB connected");
+  try {
+    await mongoose.connect(process.env.MONGODB_URI, {
+      useNewUrlParser: true,
+      useUnifiedTopology: true,
+    });
+    console.log("✅ MongoDB connected");
+  } catch (err) {
+    console.error("❌ MongoDB connection error:", {
+      message: err.message,
+      name: err.name,
+      stack: err.stack,
+    });
+    throw err;
+  }
 }
 
 // Create HTTP server required for WebSocket server on Render
@@ -41,57 +51,104 @@ function startWebSocketServer() {
     const { query } = parse(req.url, true);
     const { gigId, sellerId, userId } = query;
 
+    // Validate query parameters
     if (!gigId || !sellerId || !userId) {
-      ws.close(1008, "Missing required query parameters");
+      ws.send(JSON.stringify({ error: "Missing required query parameters" }));
+      ws.close(1008, "Missing gigId, sellerId, or userId");
       return;
     }
 
-    ws.url = req.url;
+    // Validate ObjectIds
+    if (
+      !mongoose.Types.ObjectId.isValid(gigId) ||
+      !mongoose.Types.ObjectId.isValid(sellerId) ||
+      !mongoose.Types.ObjectId.isValid(userId)
+    ) {
+      ws.send(JSON.stringify({ error: "Invalid gigId, sellerId, or userId" }));
+      ws.close(1008, "Invalid gigId, sellerId, or userId");
+      return;
+    }
+
+    console.log("✅ WebSocket connected:", { gigId, sellerId, userId });
+
+    // Store query parameters directly on ws
+    ws.query = { gigId, sellerId, userId };
 
     ws.on("message", async (data) => {
       try {
         const message = JSON.parse(data);
 
+        // Validate message format
         if (!message.gigId || !message.senderId || !message.text) {
           ws.send(JSON.stringify({ error: "Invalid message format" }));
+          return;
+        }
+
+        // Validate message ObjectIds
+        if (
+          !mongoose.Types.ObjectId.isValid(message.gigId) ||
+          !mongoose.Types.ObjectId.isValid(message.senderId) ||
+          (message.recipientId && !mongoose.Types.ObjectId.isValid(message.recipientId))
+        ) {
+          ws.send(JSON.stringify({ error: "Invalid message IDs" }));
           return;
         }
 
         await connectDB();
 
         const savedMessage = await Message.create({
-          gigId: mongoose.Types.ObjectId(message.gigId),
-          userId: mongoose.Types.ObjectId(message.senderId),
+          gigId: mongoose.Types.ObjectId.createFromHexString(message.gigId),
+          userId: mongoose.Types.ObjectId.createFromHexString(message.senderId),
           recipientId: message.recipientId
-            ? mongoose.Types.ObjectId(message.recipientId)
+            ? mongoose.Types.ObjectId.createFromHexString(message.recipientId)
             : null,
           text: message.text,
           timestamp: new Date(message.timestamp),
+          read: false,
         });
 
         const populatedMessage = await Message.findById(savedMessage._id)
           .populate("userId", "name avatar")
           .lean();
 
+        if (!populatedMessage) {
+          console.error("❌ Failed to populate message:", savedMessage._id);
+          ws.send(JSON.stringify({ error: "Failed to retrieve message details" }));
+          return;
+        }
+
+        console.log("✅ Message saved:", populatedMessage);
+
         // Broadcast to relevant clients
         wss.clients.forEach((client) => {
           if (
-            client.readyState === ws.OPEN &&
-            client.url &&
-            client.url.includes(`gigId=${gigId}`) &&
-            (client.url.includes(`userId=${sellerId}`) || client.url.includes(`userId=${userId}`))
+            client.readyState === WebSocket.OPEN &&
+            client.query &&
+            client.query.gigId === gigId &&
+            (client.query.userId === sellerId || client.query.userId === userId)
           ) {
             client.send(JSON.stringify(populatedMessage));
+          } else {
+            console.log("🔍 Skipping client:", {
+              readyState: client.readyState,
+              query: client.query,
+              matchesGig: client.query?.gigId === gigId,
+              matchesUser: client.query?.userId === sellerId || client.query?.userId === userId,
+            });
           }
         });
       } catch (err) {
-        console.error("Error processing message:", err);
+        console.error("❌ Error processing message:", {
+          message: err.message,
+          name: err.name,
+          stack: err.stack,
+        });
         ws.send(JSON.stringify({ error: "Server error" }));
       }
     });
 
     ws.on("close", () => {
-      console.log("WebSocket disconnected:", { gigId, sellerId, userId });
+      console.log("🔌 WebSocket disconnected:", { gigId, sellerId, userId });
     });
   });
 
@@ -110,7 +167,11 @@ async function start() {
       console.log(`✅ Server running on http://localhost:${port}`);
     });
   } catch (err) {
-    console.error("❌ Server failed to start:", err);
+    console.error("❌ Server failed to start:", {
+      message: err.message,
+      name: err.name,
+      stack: err.stack,
+    });
     process.exit(1);
   }
 }
@@ -126,6 +187,11 @@ process.on("SIGTERM", () => {
         console.log("✅ Clean shutdown");
         process.exit(0);
       });
+    });
+  } else {
+    mongoose.connection.close(() => {
+      console.log("✅ MongoDB connection closed");
+      process.exit(0);
     });
   }
 });
