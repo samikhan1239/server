@@ -101,12 +101,12 @@ function startWebSocketServer() {
 
         await connectDB();
 
-        // Relaxed duplicate message check (increased window to 5 seconds)
+        // Relaxed duplicate check (10-second window and exact timestamp match)
         const existingMessage = await Message.findOne({
           gigId: message.gigId,
           userId: message.senderId,
           text: message.text,
-          timestamp: { $gte: new Date(message.timestamp - 5000) },
+          timestamp: message.timestamp, // Exact match for timestamp
         });
         if (existingMessage) {
           console.log("🔍 Duplicate message detected:", {
