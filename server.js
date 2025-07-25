@@ -1,3 +1,4 @@
+// WebSocket Server (index.js or similar)
 require("dotenv").config({ path: "./.env.local" });
 
 const { WebSocketServer } = require("ws");
@@ -51,9 +52,15 @@ const server = http.createServer((req, res) => {
 
 // Initialize WebSocket server
 function startWebSocketServer() {
-  if (wss) return wss;
+  if (wss) {
+    console.log("✅ WebSocket server already running");
+    return wss;
+  }
 
   wss = new WebSocketServer({ server });
+  console.log("✅ WebSocket server initialized");
+
+  const activeConnections = new Map(); // Map<userId, Set<WebSocket>>
 
   wss.on("connection", async (ws, req) => {
     const { query } = parse(req.url, true);
@@ -82,10 +89,28 @@ function startWebSocketServer() {
     // Store query parameters on ws
     ws.query = { gigId, sellerId, userId };
 
+    // Manage active connections
+    if (!activeConnections.has(userId)) {
+      activeConnections.set(userId, new Set());
+    }
+    const userConnections = activeConnections.get(userId);
+    userConnections.add(ws);
+
+    // Close older connections for the same userId and gigId
+    if (userConnections.size > 1) {
+      userConnections.forEach((client) => {
+        if (client !== ws && client.query.gigId === gigId) {
+          client.close(1008, "Duplicate connection");
+          userConnections.delete(client);
+          console.log("🔌 Closed duplicate connection for userId:", userId, "gigId:", gigId);
+        }
+      });
+    }
+
     ws.on("message", async (data) => {
       try {
         const message = JSON.parse(data);
-        console.log("Received WebSocket message:", message); // Log incoming message
+        console.log("Received WebSocket message:", message);
 
         // Validate message format
         if (!message.gigId || !message.senderId || !message.text) {
@@ -105,6 +130,14 @@ function startWebSocketServer() {
           return;
         }
 
+        // Create unique messageId
+        const messageId = message.messageId || `${message.senderId}:${message.timestamp || Date.now()}`;
+        const existingMessage = await Message.findOne({ messageId });
+        if (existingMessage) {
+          console.log("🔍 Duplicate message ignored:", { messageId, _id: existingMessage._id });
+          return;
+        }
+
         await connectDB();
 
         const savedMessage = await Message.create({
@@ -116,6 +149,7 @@ function startWebSocketServer() {
           text: message.text,
           timestamp: new Date(message.timestamp || Date.now()),
           read: false,
+          messageId,
         });
 
         const populatedMessage = await Message.findById(savedMessage._id)
@@ -149,6 +183,10 @@ function startWebSocketServer() {
           }
         });
       } catch (err) {
+        if (err.code === 11000) {
+          console.log("🔍 Duplicate messageId ignored:", messageId);
+          return;
+        }
         console.error("❌ Error processing message:", {
           message: err.message,
           name: err.name,
@@ -159,6 +197,10 @@ function startWebSocketServer() {
     });
 
     ws.on("close", () => {
+      userConnections.delete(ws);
+      if (userConnections.size === 0) {
+        activeConnections.delete(userId);
+      }
       console.log("🔌 WebSocket disconnected:", { gigId, sellerId, userId });
     });
   });

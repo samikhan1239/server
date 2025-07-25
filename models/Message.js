@@ -1,11 +1,14 @@
+// models/Message.js
 const mongoose = require("mongoose");
 
-   const MessageSchema = new mongoose.Schema({
-     gigId: { type: mongoose.Schema.Types.ObjectId, ref: "Gig", required: true },
-     userId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
-     recipientId: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
-     text: { type: String, required: true },
-     timestamp: { type: Date, default: Date.now },
-   });
+const MessageSchema = new mongoose.Schema({
+  gigId: { type: mongoose.Schema.Types.ObjectId, ref: "Gig", required: true },
+  userId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
+  recipientId: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
+  text: { type: String, required: true },
+  timestamp: { type: Date, default: Date.now },
+  read: { type: Boolean, default: false }, // Added read field to match server logic
+  messageId: { type: String, unique: true }, // Unique identifier for deduplication
+});
 
-   module.exports = mongoose.models.Message || mongoose.model("Message", MessageSchema);
+module.exports = mongoose.models.Message || mongoose.model("Message", MessageSchema);
