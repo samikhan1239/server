@@ -1,4 +1,5 @@
-require("dotenv").config({ path: "./.env.local" });
+import dotenv from "dotenv";
+dotenv.config({ path: "./.env.local" });
 
 const { WebSocketServer } = require("ws");
 const mongoose = require("mongoose");
@@ -6,8 +7,8 @@ const { parse } = require("url");
 const http = require("http");
 
 // MongoDB Models
-const Message = require("./models/Message");
-const User = require("./models/User");
+const Message = require("./models/Message.js");
+const User = require("./models/User.js");
 
 // Explicitly register User model to avoid MissingSchemaError
 mongoose.model("User");
