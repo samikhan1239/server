@@ -1,19 +1,14 @@
 import dotenv from "dotenv";
 dotenv.config({ path: "./.env.local" });
 
-const { WebSocketServer } = require("ws");
-const mongoose = require("mongoose");
-const { parse } = require("url");
-const http = require("http");
+import { WebSocketServer } from "ws";
+import mongoose from "mongoose";
+import { parse } from "url";
+import http from "http";
 
-// MongoDB Models
-const Message = require("./models/Message.js");
-const User = require("./models/User.js");
+import Message from "./models/Message.js";
+import User from "./models/User.js"; // even if unused, this ensures the schema is registered
 
-// Explicitly register User model to avoid MissingSchemaError
-mongoose.model("User");
-
-// Use PORT for Render compatibility, default to 10000 for local
 const port = process.env.PORT || 10000;
 let wss;
 
@@ -39,7 +34,7 @@ async function connectDB() {
   }
 }
 
-// Create HTTP server for WebSocket on Render
+// HTTP server (needed for WebSocket)
 const server = http.createServer((req, res) => {
   if (req.url === "/health") {
     res.writeHead(200, { "Content-Type": "application/json" });
@@ -50,7 +45,7 @@ const server = http.createServer((req, res) => {
   }
 });
 
-// Initialize WebSocket server
+// Initialize WebSocket
 function startWebSocketServer() {
   if (wss) return wss;
 
@@ -60,14 +55,12 @@ function startWebSocketServer() {
     const { query } = parse(req.url, true);
     const { gigId, sellerId, userId } = query;
 
-    // Validate query parameters
     if (!gigId || !sellerId || !userId) {
       ws.send(JSON.stringify({ error: "Missing required query parameters" }));
       ws.close(1008, "Missing gigId, sellerId, or userId");
       return;
     }
 
-    // Validate ObjectIds
     if (
       !mongoose.Types.ObjectId.isValid(gigId) ||
       !mongoose.Types.ObjectId.isValid(sellerId) ||
@@ -80,28 +73,22 @@ function startWebSocketServer() {
 
     console.log("✅ WebSocket connected:", { gigId, sellerId, userId });
 
-    // Store query parameters on ws
     ws.query = { gigId, sellerId, userId };
 
     ws.on("message", async (data) => {
       try {
         const message = JSON.parse(data);
-        console.log("Received WebSocket message:", message); // Log incoming message
 
-        // Validate message format
         if (!message.gigId || !message.senderId || !message.text) {
-          console.log("❌ Invalid message format:", message);
-          ws.send(JSON.stringify({ error: "Invalid message format: Missing gigId, senderId, or text" }));
+          ws.send(JSON.stringify({ error: "Invalid message format" }));
           return;
         }
 
-        // Validate message ObjectIds
         if (
           !mongoose.Types.ObjectId.isValid(message.gigId) ||
           !mongoose.Types.ObjectId.isValid(message.senderId) ||
           (message.recipientId && !mongoose.Types.ObjectId.isValid(message.recipientId))
         ) {
-          console.log("❌ Invalid message IDs:", message);
           ws.send(JSON.stringify({ error: "Invalid message IDs" }));
           return;
         }
@@ -124,14 +111,10 @@ function startWebSocketServer() {
           .lean();
 
         if (!populatedMessage) {
-          console.error("❌ Failed to populate message:", savedMessage._id);
           ws.send(JSON.stringify({ error: "Failed to retrieve message details" }));
           return;
         }
 
-        console.log("✅ Message saved:", populatedMessage);
-
-        // Broadcast to relevant clients
         wss.clients.forEach((client) => {
           if (
             client.readyState === WebSocket.OPEN &&
@@ -140,21 +123,10 @@ function startWebSocketServer() {
             (client.query.userId === sellerId || client.query.userId === userId)
           ) {
             client.send(JSON.stringify(populatedMessage));
-          } else {
-            console.log("🔍 Skipping client:", {
-              readyState: client.readyState,
-              query: client.query,
-              matchesGig: client.query?.gigId === gigId,
-              matchesUser: client.query?.userId === sellerId || client.query?.userId === userId,
-            });
           }
         });
       } catch (err) {
-        console.error("❌ Error processing message:", {
-          message: err.message,
-          name: err.name,
-          stack: err.stack,
-        });
+        console.error("❌ Error processing message:", err);
         ws.send(JSON.stringify({ error: "Server error" }));
       }
     });
@@ -167,7 +139,7 @@ function startWebSocketServer() {
   return wss;
 }
 
-// Start everything
+// Start app
 async function start() {
   try {
     console.log("🟡 Connecting to MongoDB...");
@@ -176,14 +148,10 @@ async function start() {
     startWebSocketServer();
 
     server.listen(port, () => {
-      console.log(`✅ Server running on http://localhost:${port} (local) or Render-assigned port`);
+      console.log(`✅ Server running on http://localhost:${port}`);
     });
   } catch (err) {
-    console.error("❌ Server failed to start:", {
-      message: err.message,
-      name: err.name,
-      stack: err.stack,
-    });
+    console.error("❌ Server failed to start:", err);
     process.exit(1);
   }
 }
