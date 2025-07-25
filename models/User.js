@@ -1,7 +1,4 @@
-// models/User.js
-// ✅ Correct
 const mongoose = require("mongoose");
-
 
 const userSchema = new mongoose.Schema({
   name: { type: String, required: true },
@@ -15,4 +12,5 @@ const userSchema = new mongoose.Schema({
   createdAt: { type: Date, default: Date.now },
 });
 
-export default mongoose.models.User || mongoose.model("User", userSchema);
+// ✅ CommonJS export
+module.exports = mongoose.models.User || mongoose.model("User", userSchema);
